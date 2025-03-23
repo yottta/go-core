@@ -101,3 +101,7 @@ func Stop() {
 		slog.With("timeout", forcefullyTimeout).WarnContext(ctx, "app stopped forcefully after timeout")
 	}
 }
+
+func Context() context.Context {
+	return ctx
+}
