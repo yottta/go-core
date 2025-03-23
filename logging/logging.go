@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/yottta/reno-core/env"
+	"github.com/yottta/go-core/env"
 )
 
 // Setup is setting up slog with different options
