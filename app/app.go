@@ -10,17 +10,26 @@ import (
 	"time"
 )
 
-type App struct {
-	c []Component
+var (
+	components []Component
 
 	ctx        context.Context
 	cancel     context.CancelCauseFunc
 	shutdownCh chan os.Signal
 	closingCh  chan struct{}
 
-	internalCtx context.Context
-
 	forcefullyTimeout time.Duration
+)
+
+func init() {
+	reset()
+}
+
+func reset() {
+	ctx, cancel = context.WithCancelCause(context.Background())
+	shutdownCh = make(chan os.Signal, 1)
+	closingCh = make(chan struct{}, 1)
+	forcefullyTimeout = 3 * time.Second
 }
 
 type Component interface {
@@ -29,54 +38,40 @@ type Component interface {
 	Stop() error
 }
 
-// New returns also the context to make the user aware of its existence and encourage on using it for better
-// app state management.
-func New() (*App, context.Context) {
-	ctx, cancel := context.WithCancelCause(context.Background())
-	return &App{
-		ctx:    ctx,
-		cancel: cancel,
-
-		shutdownCh:        make(chan os.Signal, 1),
-		closingCh:         make(chan struct{}, 1),
-		forcefullyTimeout: 3 * time.Second,
-	}, ctx
-}
-
-func (a *App) cleanup() {
-	for _, c := range a.c {
+func cleanup() {
+	for _, c := range components {
 		if err := c.Stop(); err != nil {
 			slog.
 				With("error", err).
 				With("component", c.String()).
-				WarnContext(a.ctx, "stop error encountered during closing component")
+				WarnContext(ctx, "stop error encountered during closing component")
 		}
 	}
-	a.c = nil
+	components = nil
 }
 
-func (a *App) exit(err error) {
-	a.cleanup()
+func exit(err error) {
+	cleanup()
 	panic(err)
 }
 
-func (a *App) Register(c Component) {
+func Register(c Component) {
 	if c == nil {
-		a.exit(fmt.Errorf("given component is nil"))
+		exit(fmt.Errorf("given component is nil"))
 		return
 	}
 	err := c.Start()
 	if err != nil {
-		a.exit(err)
+		exit(err)
 	}
 	slog.
 		With("component", c.String()).
-		DebugContext(a.ctx, "component registered successfully")
-	a.c = append(a.c, c)
+		DebugContext(ctx, "component registered successfully")
+	components = append(components, c)
 }
 
-func (a *App) Start() {
-	signal.Notify(a.shutdownCh,
+func Start() {
+	signal.Notify(shutdownCh,
 		syscall.SIGHUP,
 		syscall.SIGINT,
 		syscall.SIGTERM,
@@ -84,25 +79,25 @@ func (a *App) Start() {
 	)
 
 	defer func() {
-		a.cleanup()
-		close(a.closingCh)
+		cleanup()
+		close(closingCh)
 	}()
-	slog.InfoContext(a.ctx, "started...")
+	slog.InfoContext(ctx, "started...")
 	select {
-	case <-a.shutdownCh:
-		a.cancel(fmt.Errorf("app closing triggered by system call"))
-	case <-a.ctx.Done():
-		slog.DebugContext(a.ctx, "app closing triggered from inside the app")
+	case <-shutdownCh:
+		cancel(fmt.Errorf("app closing triggered by system call"))
+	case <-ctx.Done():
+		slog.DebugContext(ctx, "app closing triggered from inside the app")
 	}
 }
 
-func (a *App) Stop() {
-	a.cancel(fmt.Errorf("app stopped"))
+func Stop() {
+	cancel(fmt.Errorf("app stopped"))
 
 	select {
-	case <-a.closingCh:
-		slog.DebugContext(a.ctx, "app stopped successfully")
-	case <-time.After(a.forcefullyTimeout):
-		slog.With("timeout", a.forcefullyTimeout).WarnContext(a.ctx, "app stopped forcefully after timeout")
+	case <-closingCh:
+		slog.DebugContext(ctx, "app stopped successfully")
+	case <-time.After(forcefullyTimeout):
+		slog.With("timeout", forcefullyTimeout).WarnContext(ctx, "app stopped forcefully after timeout")
 	}
 }

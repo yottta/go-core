@@ -11,14 +11,12 @@ import (
 func TestRegister(t *testing.T) {
 	t.Run("panics on nil component", func(t *testing.T) {
 		defer expectPanic(t, "given component is nil")
-		app, _ := New()
-		app.Register(nil)
+		Register(nil)
 	})
 	t.Run("component start returns error", func(t *testing.T) {
 		const want = "error from component"
 		defer expectPanic(t, want)
-		app, _ := New()
-		app.Register(&mockComp{
+		Register(&mockComp{
 			startF: func() error {
 				return fmt.Errorf(want)
 			},
@@ -29,12 +27,11 @@ func TestRegister(t *testing.T) {
 
 func TestStartStop(t *testing.T) {
 	t.Run("start and stop with the given methods", func(t *testing.T) {
-
 		var (
 			startCalled, stopCalled bool
 		)
-		app, ctx := New()
-		app.Register(&mockComp{
+		reset()
+		Register(&mockComp{
 			startF: func() error {
 				startCalled = true
 				return nil
@@ -46,9 +43,9 @@ func TestStartStop(t *testing.T) {
 		})
 		go func() {
 			<-time.After(time.Second)
-			app.Stop()
+			Stop()
 		}()
-		app.Start()
+		Start()
 
 		if !startCalled {
 			t.Errorf("expected to have the start function called but it wasn't")
@@ -77,8 +74,8 @@ func TestStartStop(t *testing.T) {
 		var (
 			startCalled, stopCalled bool
 		)
-		app, ctx := New()
-		app.Register(&mockComp{
+		reset()
+		Register(&mockComp{
 			startF: func() error {
 				startCalled = true
 				return nil
@@ -90,10 +87,10 @@ func TestStartStop(t *testing.T) {
 		})
 		go func() {
 			<-time.After(time.Second)
-			app.shutdownCh <- syscall.SIGINT
+			shutdownCh <- syscall.SIGINT
 		}()
-		app.Start()
-		// NOTE: Do not sleep here. app.Start() is meant to block until everything is cleaned up
+		Start()
+		// NOTE: Do not sleep here. Start() is meant to block until everything is cleaned up
 		if !startCalled {
 			t.Errorf("expected to have the start function called but it wasn't")
 		}
@@ -124,8 +121,8 @@ func TestComponentErrors(t *testing.T) {
 		var (
 			startCalled, stopCalled bool
 		)
-		app, _ := New()
-		app.Register(&mockComp{
+		reset()
+		Register(&mockComp{
 			startF: func() error {
 				startCalled = true
 				return nil
@@ -137,9 +134,9 @@ func TestComponentErrors(t *testing.T) {
 		})
 		go func() {
 			<-time.After(time.Second)
-			app.Stop()
+			Stop()
 		}()
-		app.Start()
+		Start()
 
 		if !startCalled {
 			t.Errorf("expected to have the start function called but it wasn't")
@@ -154,9 +151,9 @@ func TestComponentErrors(t *testing.T) {
 			compStoppedAt time.Time
 			appStoppedAt  time.Time
 		)
-		app, ctx := New()
-		app.forcefullyTimeout = 200 * time.Millisecond
-		app.Register(&mockComp{
+		reset()
+		forcefullyTimeout = 200 * time.Millisecond
+		Register(&mockComp{
 			startF: func() error { startCalled = true; return nil },
 			stopF: func() error {
 				<-time.After(500 * time.Millisecond)
@@ -166,11 +163,11 @@ func TestComponentErrors(t *testing.T) {
 		})
 		go func() {
 			<-time.After(time.Second)
-			app.Stop()
+			Stop()
 			appStoppedAt = time.Now()
 		}()
-		app.Start()
-		// NOTE: Do not sleep here. app.Start() is meant to block until everything is cleaned up
+		Start()
+		// NOTE: Do not sleep here. Start() is meant to block until everything is cleaned up
 		if !startCalled {
 			t.Errorf("expected to have the start function called but it wasn't")
 		}
