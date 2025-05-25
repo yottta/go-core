@@ -6,6 +6,10 @@ import (
 	"strconv"
 )
 
+func Expand(v string) string {
+	return os.ExpandEnv(v)
+}
+
 func StringWithDefault(k string, def string) string {
 	v := os.Getenv(k)
 	if v == "" {
