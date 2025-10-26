@@ -10,6 +10,7 @@ on:
 
 jobs:
   call-workflow-passing-data:
-    uses: yottta/github-workflows/.github/workflows/checks.yaml@main
+    uses: yottta/github-workflows/.github/workflows/checks.yaml@build-test-workflow
     with:
       go-enabled: true
+      go-test-pattern: './...'
