@@ -102,6 +102,9 @@ func Stop() {
 	}
 }
 
+// Context returns the context that is used to start the app.
+// This is cancellable context whose [context.Done()] can be used
+// to listen on the shutdown signals.
 func Context() context.Context {
 	return ctx
 }

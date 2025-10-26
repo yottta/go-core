@@ -1,7 +1,6 @@
 package env
 
 import (
-	"os"
 	"testing"
 )
 
@@ -109,19 +108,6 @@ func TestExpand(t *testing.T) {
 
 func setupEnvVars(t *testing.T, in map[string]string) {
 	for k, v := range in {
-		if err := os.Setenv(k, v); err != nil {
-			t.Fatalf("failed to set env %s with val %v", k, v)
-		}
-	}
-	t.Cleanup(func() {
-		cleanupEnvVars(t, in)
-	})
-}
-
-func cleanupEnvVars(t *testing.T, in map[string]string) {
-	for k := range in {
-		if err := os.Unsetenv(k); err != nil {
-			t.Fatalf("failed to unset env var %s", k)
-		}
+		t.Setenv(k, v)
 	}
 }
