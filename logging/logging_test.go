@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"testing"
 )
 
 func TestSetup(t *testing.T) {
 	t.Run("level tests", func(t *testing.T) {
-		defer func() { _ = os.Unsetenv("LOG_LEVEL") }()
 		// returns bool for wantDebug, wantInfo, wantWarn, wantError
 		genWantErrors := func(lvl string) (bool, bool, bool, bool) {
 			switch lvl {
@@ -24,13 +22,11 @@ func TestSetup(t *testing.T) {
 			case "error":
 				return false, false, false, true
 			}
-			return false, false, false, false
+			return true, true, true, true // same as debug
 		}
-		for _, lvl := range []string{"debug", "info", "warn", "error"} {
+		for _, lvl := range []string{"definitely_not_acceptable_log_level", "debug", "info", "warn", "error"} {
 			t.Run(lvl, func(t *testing.T) {
-				if err := os.Setenv("LOG_LEVEL", lvl); err != nil {
-					t.Fatalf("could not set the LOG_FORMAT env var")
-				}
+				t.Setenv("LOG_LEVEL", lvl)
 				var b bytes.Buffer
 				setupWithWriter(&b)
 				writeAllLevelLogs()
@@ -40,11 +36,8 @@ func TestSetup(t *testing.T) {
 		}
 	})
 	t.Run("format tests", func(t *testing.T) {
-		defer func() { _ = os.Unsetenv("LOG_FORMAT") }()
 		t.Run("text", func(t *testing.T) {
-			if err := os.Setenv("LOG_FORMAT", "text"); err != nil {
-				t.Fatalf("could not set the LOG_FORMAT env var")
-			}
+			t.Setenv("LOG_FORMAT", "text")
 			var b bytes.Buffer
 			setupWithWriter(&b)
 			writeAllLevelLogs()
@@ -54,9 +47,7 @@ func TestSetup(t *testing.T) {
 			}
 		})
 		t.Run("json", func(t *testing.T) {
-			if err := os.Setenv("LOG_FORMAT", "json"); err != nil {
-				t.Fatalf("could not set the LOG_FORMAT env var")
-			}
+			t.Setenv("LOG_FORMAT", "json")
 			var b bytes.Buffer
 			setupWithWriter(&b)
 			writeAllLevelLogs()
@@ -65,14 +56,21 @@ func TestSetup(t *testing.T) {
 				t.Errorf("generated logs seems to contain json content but it shouldn't. content: %s", content)
 			}
 		})
+		t.Run("wrong format", func(t *testing.T) {
+			t.Setenv("LOG_FORMAT", "wrong")
+			var b bytes.Buffer
+			setupWithWriter(&b)
+			writeAllLevelLogs()
+			t.Logf("content: %s", b.String())
+			if content := b.String(); strings.Contains(content, "{") {
+				t.Errorf("generated logs seems to contain json content but it shouldn't. content: %s", content)
+			}
+		})
 	})
 
 	t.Run("sources tests", func(t *testing.T) {
-		defer func() { _ = os.Unsetenv("LOG_SOURCE") }()
 		t.Run("w/o source", func(t *testing.T) {
-			if err := os.Setenv("LOG_SOURCE", "false"); err != nil {
-				t.Fatalf("could not set the LOG_SOURCE env var")
-			}
+			t.Setenv("LOG_SOURCE", "false")
 			var b bytes.Buffer
 			setupWithWriter(&b)
 			writeAllLevelLogs()
@@ -82,9 +80,7 @@ func TestSetup(t *testing.T) {
 			}
 		})
 		t.Run("with source", func(t *testing.T) {
-			if err := os.Setenv("LOG_SOURCE", "true"); err != nil {
-				t.Fatalf("could not set the LOG_SOURCE env var")
-			}
+			t.Setenv("LOG_SOURCE", "true")
 			var b bytes.Buffer
 			setupWithWriter(&b)
 			writeAllLevelLogs()
