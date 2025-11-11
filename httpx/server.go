@@ -12,18 +12,26 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-type Config struct {
-	Host string
-	Port int
-}
+// NewServer creates a new server from the given opts.
+// This returns the struct that can be used to start and close a http server.
+// For the options available, check [Opt].
+func (c *Config) NewServer(opts ...Opt) *Server {
+	r := chi.NewRouter()
+	c.setDefaults()
 
-func (c *Config) NewServer() *Server {
+	for _, opt := range opts {
+		opt(c)
+	}
+	r.Use(
+		c.middlewares...,
+	)
 	return &Server{
 		config: *c,
-		Router: chi.NewRouter(),
+		Router: r,
 	}
 }
 
+// Server wrapper for [chi.Router]
 type Server struct {
 	Router chi.Router
 
@@ -33,6 +41,13 @@ type Server struct {
 	closeCh chan struct{}
 }
 
+// Start is starting the listening for connections.
+// The received [ctx] is used to close the server on cancellation.
+//
+// This method uses the [Config.Host] and [Config.Port] to start the listener. If
+// these are not configured, the [net] package will allocate an available one.
+//
+// The call on this function is blocking.
 func (r *Server) Start(ctx context.Context) error {
 	addr := fmt.Sprintf("%s:%d", r.config.Host, r.config.Port)
 	l, err := net.Listen("tcp", addr)
@@ -70,9 +85,11 @@ func (r *Server) Start(ctx context.Context) error {
 	return nil
 }
 
+// Close is stopping the listening. If the server was not started, this
+// method will do nothing.
 func (r *Server) Close() {
 	if r.closeFn == nil {
-		slog.Info("http server closing skipped since it was not started")
+		slog.Debug("http server closing skipped since it was not started")
 		return
 	}
 	slog.Info("http server closing triggered")
