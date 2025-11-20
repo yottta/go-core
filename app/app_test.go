@@ -54,7 +54,7 @@ func TestStartStop(t *testing.T) {
 		if !stopCalled {
 			t.Errorf("expected to have the stop function called but it wasn't")
 		}
-		ctxErr := ctx.Err()
+		ctxErr := Context().Err()
 		if ctxErr == nil {
 			t.Fatalf("expected context to contain an error. got nothing")
 		}
@@ -193,7 +193,7 @@ func TestComponentErrors(t *testing.T) {
 		}
 
 		select {
-		case <-ctx.Done():
+		case <-Context().Done():
 		case <-time.After(5 * time.Second):
 			t.Fatalf("expected the app to fail and close the channel")
 		}
