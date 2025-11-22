@@ -4,20 +4,22 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
-	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
 func TestRegister(t *testing.T) {
 	t.Run("panics on nil component", func(t *testing.T) {
 		defer expectPanic(t, "given component is nil")
-		Register(nil)
+		a := New()
+		a.Register(nil)
 	})
 	t.Run("component start returns error", func(t *testing.T) {
 		const want = "error from component"
 		defer expectPanic(t, want)
-		Register(&mockComp{
+		a := New()
+		a.Register(&mockComp{
 			startF: func() error {
 				return fmt.Errorf(want)
 			},
@@ -31,8 +33,8 @@ func TestStartStop(t *testing.T) {
 		var (
 			startCalled, stopCalled bool
 		)
-		reset()
-		Register(&mockComp{
+		a := New()
+		a.Register(&mockComp{
 			startF: func() error {
 				startCalled = true
 				return nil
@@ -44,9 +46,9 @@ func TestStartStop(t *testing.T) {
 		})
 		go func() {
 			<-time.After(time.Second)
-			Stop()
+			a.Stop()
 		}()
-		Start()
+		a.Start()
 
 		if !startCalled {
 			t.Errorf("expected to have the start function called but it wasn't")
@@ -54,7 +56,7 @@ func TestStartStop(t *testing.T) {
 		if !stopCalled {
 			t.Errorf("expected to have the stop function called but it wasn't")
 		}
-		ctxErr := Context().Err()
+		ctxErr := a.Context().Err()
 		if ctxErr == nil {
 			t.Fatalf("expected context to contain an error. got nothing")
 		}
@@ -62,76 +64,13 @@ func TestStartStop(t *testing.T) {
 		if got := ctxErr.Error(); got != want {
 			t.Errorf("failed with a different context error.\nexpected: \n\t%s\ngot:\n\t%s", want, got)
 		}
-		ctxCause := context.Cause(ctx)
+		ctxCause := context.Cause(a.ctx)
 		if ctxCause == nil {
 			t.Fatalf("expected context to contain an reason. got nothing")
 		}
 		want = "app stopped"
 		if got := ctxCause.Error(); got != want {
 			t.Fatalf("failed with a different context cause.\nexpected: \n\t%s\ngot:\n\t%s", want, got)
-		}
-	})
-	t.Run("shutting down on system call", func(t *testing.T) {
-		var (
-			startCalled, stopCalled bool
-		)
-		reset()
-		Register(&mockComp{
-			startF: func() error {
-				startCalled = true
-				return nil
-			},
-			stopF: func() error {
-				stopCalled = true
-				return nil
-			},
-		})
-		// setup a listening on the Context().Done() to be sure that it works as expected
-		var contextClosed atomic.Bool
-		contextCheckDone := make(chan struct{}, 1)
-		go func() {
-			<-Context().Done()
-			contextClosed.Store(true)
-			close(contextCheckDone)
-		}()
-		// After 1 second from now, simulate the system SIGINT signal
-		go func() {
-			<-time.After(time.Second)
-			shutdownCh <- syscall.SIGINT
-		}()
-		Start()
-		// NOTE: Do not sleep here. Start() is meant to block until everything is cleaned up
-		if !startCalled {
-			t.Errorf("expected to have the start function called but it wasn't")
-		}
-		if !stopCalled {
-			t.Errorf("expected to have the stop function called but it wasn't")
-		}
-		ctxErr := Context().Err()
-		if ctxErr == nil {
-			t.Fatalf("expected context to contain an error. got nothing")
-		}
-		want := "context canceled"
-		if got := ctxErr.Error(); got != want {
-			t.Errorf("failed with a different context error.\nexpected: \n\t%s\ngot:\n\t%s", want, got)
-		}
-		ctxCause := context.Cause(Context())
-		if ctxCause == nil {
-			t.Fatalf("expected context to contain an reason. got nothing")
-		}
-		want = "app closing triggered by system call"
-		if got := ctxCause.Error(); got != want {
-			t.Fatalf("failed with a different context cause.\nexpected: \n\t%s\ngot:\n\t%s", want, got)
-		}
-		select {
-		case _, ok := <-contextCheckDone:
-			if ok {
-				t.Errorf("received signal from the context closing check but the channel is still open")
-				break
-			}
-			t.Log("context closed as expected", ok)
-		case <-time.After(500 * time.Millisecond):
-			t.Fatalf("context didn't close correctly")
 		}
 	})
 }
@@ -141,8 +80,8 @@ func TestComponentErrors(t *testing.T) {
 		var (
 			startCalled, stopCalled bool
 		)
-		reset()
-		Register(&mockComp{
+		a := New()
+		a.Register(&mockComp{
 			startF: func() error {
 				startCalled = true
 				return nil
@@ -154,9 +93,9 @@ func TestComponentErrors(t *testing.T) {
 		})
 		go func() {
 			<-time.After(time.Second)
-			Stop()
+			a.Stop()
 		}()
-		Start()
+		a.Start()
 
 		if !startCalled {
 			t.Errorf("expected to have the start function called but it wasn't")
@@ -166,40 +105,46 @@ func TestComponentErrors(t *testing.T) {
 		}
 	})
 	t.Run("when component.Stop takes too much time, app.Stop returns before component.Stop", func(t *testing.T) {
-		var (
-			startCalled   bool
-			compStoppedAt time.Time
-			appStoppedAt  time.Time
-		)
-		reset()
-		forcefullyTimeout = 200 * time.Millisecond
-		Register(&mockComp{
-			startF: func() error { startCalled = true; return nil },
-			stopF: func() error {
-				<-time.After(500 * time.Millisecond)
-				compStoppedAt = time.Now()
-				return nil
-			},
-		})
-		go func() {
-			<-time.After(time.Second)
-			Stop()
-			appStoppedAt = time.Now()
-		}()
-		Start()
-		// NOTE: Do not sleep here. Start() is meant to block until everything is cleaned up
-		if !startCalled {
-			t.Errorf("expected to have the start function called but it wasn't")
-		}
+		synctest.Test(t, func(t *testing.T) {
+			var (
+				startCalled   bool
+				compStoppedAt atomic.Pointer[time.Time]
+				appStoppedAt  atomic.Pointer[time.Time]
+			)
+			a := New()
+			a.Register(&mockComp{
+				startF: func() error { startCalled = true; return nil },
+				stopF: func() error {
+					<-time.After(5 * time.Second) // longer than the forcefullyTimeout
+					now := time.Now()
+					compStoppedAt.Store(&now)
+					return nil
+				},
+			})
+			go func() {
+				<-time.After(time.Second)
+				a.Stop()
+				now := time.Now()
+				appStoppedAt.Store(&now)
+			}()
+			synctest.Wait()
+			a.Start()
+			// NOTE: Do not sleep here. Start() is meant to block until everything is cleaned up
+			if !startCalled {
+				t.Errorf("expected to have the start function called but it wasn't")
+			}
 
-		select {
-		case <-Context().Done():
-		case <-time.After(5 * time.Second):
-			t.Fatalf("expected the app to fail and close the channel")
-		}
-		if compStoppedAt.Compare(appStoppedAt) <= 0 {
-			t.Fatalf("expected the component to finish after the app because of the timeout")
-		}
+			select {
+			case <-a.Context().Done():
+			case <-time.After(5 * time.Second):
+				t.Fatalf("expected the app to fail and close the channel")
+			}
+			compStoppedAtTime := compStoppedAt.Load()
+			appStoppedAtTime := appStoppedAt.Load()
+			if compStoppedAtTime.Compare(*appStoppedAtTime) <= 0 {
+				t.Fatalf("expected the component to finish after the app because of the timeout")
+			}
+		})
 	})
 }
 

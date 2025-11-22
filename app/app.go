@@ -4,26 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/yottta/go-core/shutdown"
 )
-
-var (
-	components []Component
-
-	ctx        context.Context
-	cancel     context.CancelCauseFunc
-	shutdownCh chan os.Signal
-	closingCh  chan struct{}
-
-	forcefullyTimeout time.Duration
-)
-
-func init() {
-	reset()
-}
 
 // Component sets the contract for any construct that wants to be controller by the startup and the shutdown of the
 // whole application.
@@ -36,22 +21,42 @@ type Component interface {
 	Stop() error
 }
 
+type App struct {
+	components []Component
+
+	ctx       context.Context
+	cancel    context.CancelCauseFunc
+	closingCh chan struct{}
+
+	forcefullyTimeout time.Duration
+}
+
+func New() *App {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	return &App{
+		ctx:               ctx,
+		cancel:            cancel,
+		closingCh:         make(chan struct{}, 1),
+		forcefullyTimeout: 3 * time.Second,
+	}
+}
+
 // Register initialises a [Component] calling its [Component.Start].
 // If the initialisation of the [Component] returns an error, any other [Component] previously
 // registered, will be cleaned up (ie: call [Component.Stop]) and will panic to stop the startup.
-func Register(c Component) {
+func (a *App) Register(c Component) {
 	if c == nil {
-		exit(fmt.Errorf("given component is nil"))
+		a.exit(fmt.Errorf("given component is nil"))
 		return
 	}
 	err := c.Start()
 	if err != nil {
-		exit(err)
+		a.exit(err)
 	}
 	slog.
 		With("component", c.String()).
-		DebugContext(ctx, "component registered successfully")
-	components = append(components, c)
+		Debug("component registered successfully")
+	a.components = append(a.components, c)
 }
 
 // Start is a blocking call that keeps the main goroutine from returning, allowing the other
@@ -59,71 +64,59 @@ func Register(c Component) {
 // This method returns in only 2 cases: a system signal is received or the [Stop] is called specifically from another
 // goroutine.
 // The system signals that this listens for are: syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT.
-func Start() {
-	signal.Notify(shutdownCh,
-		syscall.SIGHUP,
+func (a *App) Start() {
+	ctx, cancel := shutdown.Context(a.ctx, syscall.SIGHUP,
 		syscall.SIGINT,
 		syscall.SIGTERM,
 		syscall.SIGQUIT,
 	)
+	defer cancel()
 
 	defer func() {
-		cleanup()
-		close(closingCh)
+		a.cleanup()
+		close(a.closingCh)
 	}()
-	slog.InfoContext(ctx, "started...")
+	slog.Info("started...")
 	select {
-	case <-shutdownCh:
-		cancel(fmt.Errorf("app closing triggered by system call"))
 	case <-ctx.Done():
-		slog.DebugContext(ctx, "app closing triggered from inside the app")
+		slog.Debug("app closing triggered")
 	}
 }
 
 // Stop cancels the application [context.Context] and waits for the whole application to cleanup
-func Stop() {
-	cancel(fmt.Errorf("app stopped"))
+func (a *App) Stop() {
+	a.cancel(fmt.Errorf("app stopped"))
 
 	select {
-	case <-closingCh:
-		slog.DebugContext(ctx, "app stopped successfully")
-	case <-time.After(forcefullyTimeout):
-		slog.With("timeout", forcefullyTimeout).WarnContext(ctx, "app stopped forcefully after timeout")
+	case <-a.closingCh:
+		slog.Debug("app stopped successfully")
+	case <-time.After(a.forcefullyTimeout):
+		slog.With("timeout", a.forcefullyTimeout).Warn("app stopped forcefully after timeout")
 	}
 }
 
 // Context returns the context that is used to start the app.
 // This is cancellable context whose [context.Done()] can be used
 // to listen on the shutdown signals.
-func Context() context.Context {
-	return ctx
-}
-
-// reset cleans up all the registered components and recreates all the other structs
-// to make this package usable again. This is mainly for testing
-func reset() {
-	cleanup()
-	ctx, cancel = context.WithCancelCause(context.Background())
-	shutdownCh = make(chan os.Signal, 1)
-	closingCh = make(chan struct{}, 1)
-	forcefullyTimeout = 3 * time.Second
+func (a *App) Context() context.Context {
+	return context.WithValue(a.ctx, "", "")
 }
 
 // cleanup stops and successfully registered [Component].
-func cleanup() {
-	for _, c := range components {
+func (a *App) cleanup() {
+	for _, c := range a.components {
 		if err := c.Stop(); err != nil {
 			slog.
 				With("error", err).
 				With("component", c.String()).
-				WarnContext(ctx, "stop error encountered during closing component")
+				Warn("stop error encountered during closing component")
 		}
 	}
-	components = nil
+	a.components = nil
 }
 
-// exit is just aa utility function that combines [cleanup] with a panic.
-func exit(err error) {
-	cleanup()
+// exit is just a utility function that combines [cleanup] with a panic.
+func (a *App) exit(err error) {
+	a.cleanup()
 	panic(err)
 }
