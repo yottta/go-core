@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -18,7 +19,7 @@ func TestServerStartStop(t *testing.T) {
 		}
 		srv := cfg.NewServer()
 
-		srv.Router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		srv.Router().Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("pong"))
 		})
@@ -89,7 +90,7 @@ func TestServerStartStop(t *testing.T) {
 		}
 		srv := cfg.NewServer()
 
-		srv.Router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+		srv.Router().Get("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("test response"))
 		})
@@ -98,16 +99,11 @@ func TestServerStartStop(t *testing.T) {
 		defer cancel()
 
 		errCh := make(chan error, 1)
-
 		go func() {
 			errCh <- srv.Start(ctx)
 		}()
 
 		<-time.After(100 * time.Millisecond)
-
-		if srv.closeCh == nil {
-			t.Fatal("server did not start properly")
-		}
 
 		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/test", cfg.Port))
 		if err != nil {
@@ -145,35 +141,72 @@ func TestServerStartStop(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		errCh1 := make(chan error, 1)
-		errCh2 := make(chan error, 1)
-		go func() {
-			errCh1 <- srv1.Start(ctx)
-		}()
-		go func() {
-			errCh2 <- srv2.Start(ctx)
-		}()
-		<-time.After(100 * time.Millisecond)
+		var srv1Err, srv2Err error
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			srv1Err = srv1.Start(ctx)
+		})
+		wg.Go(func() {
+			srv2Err = srv2.Start(ctx)
+		})
+		<-time.After(200 * time.Millisecond)
 		cancel()
+		wg.Wait()
 		<-time.After(100 * time.Millisecond)
-		close(errCh1)
-		close(errCh2)
-		e, ok := <-errCh1
-		e2, ok2 := <-errCh2
-		t.Logf("server1 status: %s and %t", e, ok)
-		t.Logf("server2 status: %s and %t", e2, ok2)
-		if e == nil && e2 == nil {
+		if srv1Err == nil && srv2Err == nil {
 			t.Fatalf("no server started or none failed")
 		}
-		if e != nil && e2 != nil {
+		if srv1Err != nil && srv2Err != nil {
 			t.Fatalf("both servers failed which is not expected")
 		}
 		expected := "address already in use"
-		if e != nil && !strings.Contains(e.Error(), expected) {
-			t.Errorf("expected error to contain %q but got %q", expected, e.Error())
+		if srv1Err != nil && !strings.Contains(srv1Err.Error(), expected) {
+			t.Errorf("expected error to contain %q but got %q", expected, srv1Err.Error())
 		}
-		if e2 != nil && !strings.Contains(e2.Error(), expected) {
-			t.Errorf("expected error to contain %q but got %q", expected, e2.Error())
+		if srv2Err != nil && !strings.Contains(srv2Err.Error(), expected) {
+			t.Errorf("expected error to contain %q but got %q", expected, srv2Err.Error())
 		}
+	})
+	t.Run("calling Router() after Start() panics", func(t *testing.T) {
+		cfg := &Config{
+			Host: "localhost",
+			Port: 0,
+		}
+		srv := cfg.NewServer()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- srv.Start(ctx)
+		}()
+
+		<-time.After(100 * time.Millisecond)
+
+		defer func() {
+			const expectedPanicContent = "server already started, cannot configure the router anymore"
+			var panicErrContent any
+			if r := recover(); r != nil {
+				panicErrContent = r
+			}
+
+			if panicErrContent != expectedPanicContent {
+				t.Errorf("invalid panic content. expected %q but got %q", expectedPanicContent, panicErrContent)
+			}
+			cancel()
+			select {
+			case err := <-errCh:
+				if err != nil {
+					t.Errorf("expected no error on graceful shutdown, got: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("server did not shut down in time")
+			}
+		}()
+		srv.Router().Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("pong"))
+		})
 	})
 }

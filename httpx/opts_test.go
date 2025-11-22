@@ -67,7 +67,7 @@ func TestFullMiddlewares(t *testing.T) {
 	if got, want := len(c.middlewares), 6; got != want {
 		t.Fatalf("expected the config to have %d middlewares but got %d", want, got)
 	}
-	handle := s.Router.Middlewares().HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	handle := s.Router().Middlewares().HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		data := map[int]time.Time{}
 		for i := 1; i <= 6; i++ {
 			v := request.Context().Value(i)

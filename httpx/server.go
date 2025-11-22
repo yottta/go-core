@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/yottta/go-core/shutdown"
 )
 
 // NewServer creates a new server from the given opts.
@@ -27,18 +28,21 @@ func (c *Config) NewServer(opts ...Opt) *Server {
 	)
 	return &Server{
 		config: *c,
-		Router: r,
+		router: r,
 	}
 }
 
 // Server wrapper for [chi.Router]
 type Server struct {
-	Router chi.Router
+	router chi.Router
 
 	config Config
 
+	ctx     context.Context
 	closeFn func()
-	closeCh chan struct{}
+
+	started  bool
+	startedM sync.Mutex
 }
 
 // Start is starting the listening for connections.
@@ -49,26 +53,36 @@ type Server struct {
 //
 // The call on this function is blocking.
 func (r *Server) Start(ctx context.Context) error {
-	addr := fmt.Sprintf("%s:%d", r.config.Host, r.config.Port)
-	l, err := net.Listen("tcp", addr)
+	var srv http.Server
+	var cancel context.CancelFunc
+	var l net.Listener
+	var err error
+	configure := func() { // anonymous function for locking
+		r.startedM.Lock()
+		defer r.startedM.Unlock()
+		// No need to defer this cancel since this will be called in [Server.Close] or the cancel
+		// will be canceled when a sys signal will be issued.
+		ctx, cancel = shutdown.Context(ctx)
+		r.closeFn = cancel
+
+		addr := fmt.Sprintf("%s:%d", r.config.Host, r.config.Port)
+		l, err = net.Listen("tcp", addr)
+		if err != nil {
+			return
+		}
+
+		r.started = true
+		srv = http.Server{
+			Handler: r.router,
+		}
+	}
+	configure()
 	if err != nil {
 		return err
 	}
-	srv := http.Server{
-		Handler: r.Router,
-	}
 
-	r.closeFn = sync.OnceFunc(func() {
-		defer close(r.closeCh)
-		if err := srv.Close(); err != nil {
-			slog.With("error", err).Info("http server closing on closeFn returned error")
-		}
-	})
-	r.closeCh = make(chan struct{})
 	go func() {
 		select {
-		case <-r.closeCh:
-			return
 		case <-ctx.Done():
 			if err := srv.Close(); err != nil {
 				slog.With("error", err).Info("http server closing on context.Done returned error")
@@ -82,16 +96,29 @@ func (r *Server) Start(ctx context.Context) error {
 		return err
 	}
 	slog.Debug("http server closed gracefully")
+
 	return nil
 }
 
 // Close is stopping the listening. If the server was not started, this
 // method will do nothing.
 func (r *Server) Close() {
-	if r.closeFn == nil {
-		slog.Debug("http server closing skipped since it was not started")
+	r.startedM.Lock()
+	defer r.startedM.Unlock()
+	if !r.started {
 		return
 	}
 	slog.Info("http server closing triggered")
 	r.closeFn()
+}
+
+// Router returns the inner router to allow configuration of routes.
+// Calling this method after [Server.Start] has been called, will panic.
+func (r *Server) Router() chi.Router {
+	r.startedM.Lock()
+	defer r.startedM.Unlock()
+	if r.started {
+		panic("server already started, cannot configure the router anymore")
+	}
+	return r.router
 }
