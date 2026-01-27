@@ -133,7 +133,7 @@ func TestServerStartStop(t *testing.T) {
 	t.Run("fails when port is already in use", func(t *testing.T) {
 		cfg := &Config{
 			Host: "localhost",
-			Port: 2345,
+			Port: 2344,
 		}
 		srv1 := cfg.NewServer()
 		srv2 := cfg.NewServer()
