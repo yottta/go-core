@@ -1,4 +1,4 @@
-package httpx
+package chix
 
 import (
 	"context"
@@ -17,8 +17,9 @@ func TestServerStartStop(t *testing.T) {
 			Host: "localhost",
 			Port: 0,
 		}
-		m := http.NewServeMux()
-		m.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		srv := cfg.NewServer()
+
+		srv.Router().Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("pong"))
 		})
@@ -28,7 +29,7 @@ func TestServerStartStop(t *testing.T) {
 
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- cfg.Start(ctx, m)
+			errCh <- srv.Start(ctx)
 		}()
 
 		<-time.After(100 * time.Millisecond)
@@ -45,22 +46,61 @@ func TestServerStartStop(t *testing.T) {
 		}
 	})
 
+	t.Run("stops via Close method", func(t *testing.T) {
+		cfg := &Config{
+			Host: "localhost",
+			Port: 0,
+		}
+		srv := cfg.NewServer()
+
+		ctx := context.Background()
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- srv.Start(ctx)
+		}()
+
+		<-time.After(100 * time.Millisecond)
+
+		srv.Close()
+
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Errorf("expected no error on Close, got: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not shut down in time")
+		}
+	})
+
+	t.Run("Close before Start does nothing", func(t *testing.T) {
+		cfg := &Config{
+			Host: "localhost",
+			Port: 0,
+		}
+		srv := cfg.NewServer()
+
+		srv.Close()
+	})
+
 	t.Run("handles requests correctly", func(t *testing.T) {
 		cfg := &Config{
 			Host: "localhost",
 			Port: 1234,
 		}
-		m := http.NewServeMux()
-		m.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		srv := cfg.NewServer()
+
+		srv.Router().Get("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("test response"))
 		})
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- cfg.Start(ctx, m)
+			errCh <- srv.Start(ctx)
 		}()
 
 		<-time.After(100 * time.Millisecond)
@@ -69,7 +109,7 @@ func TestServerStartStop(t *testing.T) {
 		if err != nil {
 			t.Fatal("server failed to answer to requests")
 		}
-		defer func() { _ = resp.Body.Close() }()
+		defer resp.Body.Close()
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Fatal("failed to read the response from the request on the server")
@@ -95,6 +135,8 @@ func TestServerStartStop(t *testing.T) {
 			Host: "localhost",
 			Port: 2345,
 		}
+		srv1 := cfg.NewServer()
+		srv2 := cfg.NewServer()
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -102,11 +144,10 @@ func TestServerStartStop(t *testing.T) {
 		var srv1Err, srv2Err error
 		var wg sync.WaitGroup
 		wg.Go(func() {
-			srv1Err = cfg.Start(ctx, http.NewServeMux())
+			srv1Err = srv1.Start(ctx)
 		})
-		<-time.After(200 * time.Millisecond)
 		wg.Go(func() {
-			srv2Err = cfg.Start(ctx, http.NewServeMux())
+			srv2Err = srv2.Start(ctx)
 		})
 		<-time.After(200 * time.Millisecond)
 		cancel()
@@ -125,5 +166,47 @@ func TestServerStartStop(t *testing.T) {
 		if srv2Err != nil && !strings.Contains(srv2Err.Error(), expected) {
 			t.Errorf("expected error to contain %q but got %q", expected, srv2Err.Error())
 		}
+	})
+	t.Run("calling Router() after Start() panics", func(t *testing.T) {
+		cfg := &Config{
+			Host: "localhost",
+			Port: 0,
+		}
+		srv := cfg.NewServer()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- srv.Start(ctx)
+		}()
+
+		<-time.After(100 * time.Millisecond)
+
+		defer func() {
+			const expectedPanicContent = "server already started, cannot configure the router anymore"
+			var panicErrContent any
+			if r := recover(); r != nil {
+				panicErrContent = r
+			}
+
+			if panicErrContent != expectedPanicContent {
+				t.Errorf("invalid panic content. expected %q but got %q", expectedPanicContent, panicErrContent)
+			}
+			cancel()
+			select {
+			case err := <-errCh:
+				if err != nil {
+					t.Errorf("expected no error on graceful shutdown, got: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("server did not shut down in time")
+			}
+		}()
+		srv.Router().Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("pong"))
+		})
 	})
 }
