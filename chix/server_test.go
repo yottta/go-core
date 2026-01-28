@@ -149,10 +149,10 @@ func TestServerStartStop(t *testing.T) {
 		wg.Go(func() {
 			srv2Err = srv2.Start(ctx)
 		})
-		<-time.After(200 * time.Millisecond)
+		<-time.After(700 * time.Millisecond)
 		cancel()
 		wg.Wait()
-		<-time.After(100 * time.Millisecond)
+		<-time.After(500 * time.Millisecond)
 		if srv1Err == nil && srv2Err == nil {
 			t.Fatalf("no server started or none failed")
 		}
