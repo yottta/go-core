@@ -26,9 +26,8 @@ func TestSetup(t *testing.T) {
 		}
 		for _, lvl := range []string{"definitely_not_acceptable_log_level", "debug", "info", "warn", "error"} {
 			t.Run(lvl, func(t *testing.T) {
-				t.Setenv("LOG_LEVEL", lvl)
 				var b bytes.Buffer
-				setupWithWriter(&b)
+				setupWithWriter(&b, lvl, "text", false)
 				writeAllLevelLogs()
 				wantD, wantI, wantW, wantE := genWantErrors(lvl)
 				assertLogs(t, b.String(), wantD, wantI, wantW, wantE)
@@ -37,9 +36,8 @@ func TestSetup(t *testing.T) {
 	})
 	t.Run("format tests", func(t *testing.T) {
 		t.Run("text", func(t *testing.T) {
-			t.Setenv("LOG_FORMAT", "text")
 			var b bytes.Buffer
-			setupWithWriter(&b)
+			setupWithWriter(&b, "debug", "text", false)
 			writeAllLevelLogs()
 			t.Logf("content: %s", b.String())
 			if content := b.String(); strings.Contains(content, "{") {
@@ -47,9 +45,8 @@ func TestSetup(t *testing.T) {
 			}
 		})
 		t.Run("json", func(t *testing.T) {
-			t.Setenv("LOG_FORMAT", "json")
 			var b bytes.Buffer
-			setupWithWriter(&b)
+			setupWithWriter(&b, "debug", "json", false)
 			writeAllLevelLogs()
 			t.Logf("content: %s", b.String())
 			if content := b.String(); !strings.Contains(content, "{") {
@@ -57,9 +54,8 @@ func TestSetup(t *testing.T) {
 			}
 		})
 		t.Run("wrong format", func(t *testing.T) {
-			t.Setenv("LOG_FORMAT", "wrong")
 			var b bytes.Buffer
-			setupWithWriter(&b)
+			setupWithWriter(&b, "debug", "wrong", false)
 			writeAllLevelLogs()
 			t.Logf("content: %s", b.String())
 			if content := b.String(); strings.Contains(content, "{") {
@@ -72,7 +68,7 @@ func TestSetup(t *testing.T) {
 		t.Run("w/o source", func(t *testing.T) {
 			t.Setenv("LOG_SOURCE", "false")
 			var b bytes.Buffer
-			setupWithWriter(&b)
+			setupWithWriter(&b, "debug", "text", false)
 			writeAllLevelLogs()
 			t.Logf("content: %s", b.String())
 			if content := b.String(); strings.Contains(content, "source=") {
@@ -82,7 +78,123 @@ func TestSetup(t *testing.T) {
 		t.Run("with source", func(t *testing.T) {
 			t.Setenv("LOG_SOURCE", "true")
 			var b bytes.Buffer
-			setupWithWriter(&b)
+			setupWithWriter(&b, "debug", "text", true)
+			writeAllLevelLogs()
+			t.Logf("content: %s", b.String())
+			if content := b.String(); !strings.Contains(content, "source=") {
+				t.Errorf("generated logs seems to contain json content but it shouldn't. content: %s", content)
+			}
+		})
+	})
+}
+
+func TestSetupConfig(t *testing.T) {
+	t.Run("level tests", func(t *testing.T) {
+		// returns bool for wantDebug, wantInfo, wantWarn, wantError
+		genWantErrors := func(lvl string) (bool, bool, bool, bool) {
+			switch lvl {
+			case "debug":
+				return true, true, true, true
+			case "info":
+				return false, true, true, true
+			case "warn":
+				return false, false, true, true
+			case "error":
+				return false, false, false, true
+			}
+			return true, true, true, true // same as debug
+		}
+		for _, lvl := range []string{"definitely_not_acceptable_log_level", "debug", "info", "warn", "error"} {
+			t.Run(lvl, func(t *testing.T) {
+				var b bytes.Buffer
+				c := Config{
+					OutStream: &b,
+					LogLevel:  lvl,
+					LogFormat: "text",
+					LogSource: false,
+				}
+				c.Setup()
+				writeAllLevelLogs()
+				wantD, wantI, wantW, wantE := genWantErrors(lvl)
+				assertLogs(t, b.String(), wantD, wantI, wantW, wantE)
+			})
+		}
+	})
+	t.Run("format tests", func(t *testing.T) {
+		t.Run("text", func(t *testing.T) {
+			var b bytes.Buffer
+			c := Config{
+				OutStream: &b,
+				LogLevel:  "debug",
+				LogFormat: "text",
+				LogSource: false,
+			}
+			c.Setup()
+			writeAllLevelLogs()
+			t.Logf("content: %s", b.String())
+			if content := b.String(); strings.Contains(content, "{") {
+				t.Errorf("generated logs seems to contain json content but it shouldn't. content: %s", content)
+			}
+		})
+		t.Run("json", func(t *testing.T) {
+			var b bytes.Buffer
+			c := Config{
+				OutStream: &b,
+				LogLevel:  "debug",
+				LogFormat: "json",
+				LogSource: false,
+			}
+			c.Setup()
+			writeAllLevelLogs()
+			t.Logf("content: %s", b.String())
+			if content := b.String(); !strings.Contains(content, "{") {
+				t.Errorf("generated logs seems to contain json content but it shouldn't. content: %s", content)
+			}
+		})
+		t.Run("wrong format", func(t *testing.T) {
+			var b bytes.Buffer
+			c := Config{
+				OutStream: &b,
+				LogLevel:  "debug",
+				LogFormat: "wrong",
+				LogSource: false,
+			}
+			c.Setup()
+			writeAllLevelLogs()
+			t.Logf("content: %s", b.String())
+			if content := b.String(); strings.Contains(content, "{") {
+				t.Errorf("generated logs seems to contain json content but it shouldn't. content: %s", content)
+			}
+		})
+	})
+
+	t.Run("sources tests", func(t *testing.T) {
+		t.Run("w/o source", func(t *testing.T) {
+			t.Setenv("LOG_SOURCE", "false")
+			var b bytes.Buffer
+			c := Config{
+				OutStream: &b,
+				LogLevel:  "debug",
+				LogFormat: "text",
+				LogSource: false,
+			}
+			c.Setup()
+			writeAllLevelLogs()
+			t.Logf("content: %s", b.String())
+			if content := b.String(); strings.Contains(content, "source=") {
+				t.Errorf("generated logs seems to contain json content but it shouldn't. content: %s", content)
+			}
+		})
+		t.Run("with source", func(t *testing.T) {
+			t.Setenv("LOG_SOURCE", "true")
+			var b bytes.Buffer
+			c := Config{
+				OutStream: &b,
+				LogLevel:  "debug",
+				LogFormat: "text",
+				LogSource: true,
+			}
+			c.Setup()
 			writeAllLevelLogs()
 			t.Logf("content: %s", b.String())
 			if content := b.String(); !strings.Contains(content, "source=") {
