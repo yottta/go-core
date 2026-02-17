@@ -48,6 +48,9 @@ func SetupWithArgs(level string, format string, addSource bool) {
 
 // setupWithWriter is mainly created for testing
 func setupWithWriter(w io.Writer, level string, format string, addSource bool) {
+	if w == nil {
+		w = os.Stderr
+	}
 	lvl := &slog.LevelVar{}
 	err := lvl.UnmarshalText([]byte(level))
 	if err != nil {
