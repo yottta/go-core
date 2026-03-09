@@ -31,26 +31,26 @@ func TestInt(t *testing.T) {
 		envs := map[string]string{"envvar": "1212"}
 		setupEnvVars(t, envs)
 		if got, want := Int("envvar"), 1212; got != want {
-			t.Errorf("got a different value than the wanted one. expected: %q; got: %q", want, got)
+			t.Errorf("got a different value than the wanted one. expected: %d; got: %d", want, got)
 		}
 	})
 	t.Run("int with default - env var found", func(t *testing.T) {
 		envs := map[string]string{"envvar": "1212"}
 		setupEnvVars(t, envs)
 		if got, want := IntWithDefault("envvar", 1111), 1212; got != want {
-			t.Errorf("got a different value than the wanted one. expected: %q; got: %q", want, got)
+			t.Errorf("got a different value than the wanted one. expected: %d; got: %d", want, got)
 		}
 	})
 	t.Run("int with default - env var not int", func(t *testing.T) {
 		envs := map[string]string{"envvar": "121a"}
 		setupEnvVars(t, envs)
 		if got, want := IntWithDefault("envvar", 1111), 1111; got != want {
-			t.Errorf("got a different value than the wanted one. expected: %q; got: %q", want, got)
+			t.Errorf("got a different value than the wanted one. expected: %d; got: %d", want, got)
 		}
 	})
 	t.Run("int with default - env var not found", func(t *testing.T) {
 		if got, want := IntWithDefault("envvar", 1111), 1111; got != want {
-			t.Errorf("got a different value than the wanted one. expected: %q; got: %q", want, got)
+			t.Errorf("got a different value than the wanted one. expected: %d; got: %d", want, got)
 		}
 	})
 }
