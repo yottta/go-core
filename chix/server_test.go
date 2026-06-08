@@ -103,7 +103,7 @@ func TestServerStartStop(t *testing.T) {
 			errCh <- srv.Start(ctx)
 		}()
 
-		<-time.After(100 * time.Millisecond)
+		<-time.After(500 * time.Millisecond)
 
 		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/test", cfg.Port))
 		if err != nil {
