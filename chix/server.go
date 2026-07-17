@@ -90,7 +90,7 @@ func (r *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	slog.With("addr", l.Addr().String()).Info("http server started")
+	slog.With("addr", l.Addr().String()).With("config_port", r.config.Port).Info("http server started")
 	if err := srv.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.With("error", err).Warn("http server closed with error")
 		return err

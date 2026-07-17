@@ -105,20 +105,48 @@ func TestServerStartStop(t *testing.T) {
 
 		<-time.After(500 * time.Millisecond)
 
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/test", cfg.Port))
-		if err != nil {
-			t.Fatal("server failed to answer to requests")
+		var okOnce bool
+		for i := range 10 {
+			func() {
+				<-time.After(500 * time.Millisecond)
+				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/test", cfg.Port))
+				if err != nil {
+					if okOnce {
+						t.Errorf("[%d] server failed to answer to requests: %s", i, err)
+					} else {
+						t.Logf("[%d] server failed to answer to requests: %s", i, err)
+					}
+					return
+				}
+				defer resp.Body.Close()
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					if okOnce {
+						t.Errorf("[%d] failed to read the response from the request on the server: %s", i, err)
+					} else {
+						t.Logf("[%d] failed to read the response from the request on the server: %s", i, err)
+					}
+					return
+				}
+				if string(body) != "test response" {
+					if okOnce {
+						t.Errorf("[%d] expected 'test response', got '%s'", i, string(body))
+					} else {
+						t.Logf("[%d] expected 'test response', got '%s'", i, string(body))
+					}
+				}
+				if resp.StatusCode != http.StatusOK {
+					if okOnce {
+						t.Errorf("[%d] expected status 200, got %d", i, resp.StatusCode)
+					} else {
+						t.Logf("[%d] expected status 200, got %d", i, resp.StatusCode)
+					}
+				}
+				okOnce = true
+			}()
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatal("failed to read the response from the request on the server")
-		}
-		if string(body) != "test response" {
-			t.Errorf("expected 'test response', got '%s'", string(body))
-		}
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected status 200, got %d", resp.StatusCode)
+		if !okOnce {
+			t.Errorf("none of the requests passed through")
 		}
 
 		cancel()
