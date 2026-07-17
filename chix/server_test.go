@@ -145,6 +145,9 @@ func TestServerStartStop(t *testing.T) {
 				okOnce = true
 			}()
 		}
+		if !okOnce {
+			t.Errorf("none of the requests passed through")
+		}
 
 		cancel()
 
