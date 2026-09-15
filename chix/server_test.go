@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yottta/go-core/logging"
 )
 
 func TestServerStartStop(t *testing.T) {
@@ -84,6 +86,7 @@ func TestServerStartStop(t *testing.T) {
 	})
 
 	t.Run("handles requests correctly", func(t *testing.T) {
+		logging.Setup()
 		cfg := &Config{
 			Host: "localhost",
 			Port: 1234,
@@ -102,13 +105,26 @@ func TestServerStartStop(t *testing.T) {
 		go func() {
 			errCh <- srv.Start(ctx)
 		}()
+		tim := time.NewTimer(5 * time.Second)
 
-		<-time.After(500 * time.Millisecond)
-
+		// max 50 attempts
+		for range 50 {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/test", cfg.Port))
+			if err == nil && resp.StatusCode == http.StatusOK {
+				t.Log("warm-up suceeded")
+				break
+			}
+			select {
+			case <-tim.C:
+				t.Fatalf("warm-up failed: %s", err)
+			case <-time.After(50 * time.Millisecond):
+				t.Log("retry warm-up")
+			}
+		}
+		tim.Stop()
 		var okOnce bool
 		for i := range 10 {
 			func() {
-				<-time.After(500 * time.Millisecond)
 				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/test", cfg.Port))
 				if err != nil {
 					if okOnce {
@@ -152,7 +168,8 @@ func TestServerStartStop(t *testing.T) {
 		cancel()
 
 		select {
-		case <-errCh:
+		case err := <-errCh:
+			t.Logf("server closed: %s", err)
 		case <-time.After(2 * time.Second):
 			t.Fatal("server did not shut down in time")
 		}

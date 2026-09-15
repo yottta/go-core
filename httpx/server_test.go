@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yottta/go-core/logging"
 )
 
 func TestServerStartStop(t *testing.T) {
@@ -46,9 +48,10 @@ func TestServerStartStop(t *testing.T) {
 	})
 
 	t.Run("handles requests correctly", func(t *testing.T) {
+		logging.Setup()
 		cfg := &Config{
 			Host: "localhost",
-			Port: 1234,
+			Port: 1235,
 		}
 		m := http.NewServeMux()
 		m.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +87,8 @@ func TestServerStartStop(t *testing.T) {
 		cancel()
 
 		select {
-		case <-errCh:
+		case err := <-errCh:
+			t.Logf("server closed: %s", err)
 		case <-time.After(2 * time.Second):
 			t.Fatal("server did not shut down in time")
 		}

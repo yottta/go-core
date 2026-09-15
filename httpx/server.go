@@ -46,6 +46,7 @@ func (c *Config) Start(ctx context.Context, h http.Handler) error {
 	go func() {
 		select {
 		case <-ctx.Done():
+			slog.Debug("executing http server closing on context.Done")
 			if err := srv.Close(); err != nil {
 				slog.With("error", err).Info("http server closing on context.Done returned error")
 			}
